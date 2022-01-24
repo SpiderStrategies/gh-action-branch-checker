@@ -1,0 +1,12 @@
+name: 'Milestone Checker'
+description: 'Look for PRs based on a branch not matching the milestone of the issue'
+inputs:
+ repo-token:
+   description: 'The github token'
+   required: true
+ milestoneNumber:  # id of input
+   description: 'The milestone number associated to the branches workflow'
+   required: true
+runs:
+  using: 'node12'
+  main: 'dist/index.js'
