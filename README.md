@@ -12,10 +12,10 @@ on:
     types: [opened]
     branches: [sp]
 jobs:
-  milestone-checker:
+  branch-checker:
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/milestone-checker
+      - uses: SpiderStrategies/gh-action-branch-checker@master
         with:
           milestoneNumber: 1
           repo-token: ${{ secrets.GITHUB_TOKEN }}

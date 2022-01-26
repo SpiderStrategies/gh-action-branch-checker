@@ -2,7 +2,7 @@
 const core = require('@actions/core')
 const github = require('@actions/github')
 
-const findIssueNumber = require('./find-issue-number')
+const { findIssueNumber } = require('gh-action-components')
 
 const context = github.context;
 const { repository, pull_request } = context.payload
@@ -13,7 +13,7 @@ const repoOwnerParams = {
 }
 
 async function run() {
-	const expectedMilestoneNumber = core.getInput('milestoneNumber', { required: true });
+	const expectedMilestoneNumber = core.getInput('milestone-number', { required: true });
 	core.info(`expected milestoneNumber: ${expectedMilestoneNumber}`)
 
 	const issueNumber = await findIssueNumber({
