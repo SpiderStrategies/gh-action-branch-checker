@@ -8792,7 +8792,7 @@ class BranchCheckerAction extends BaseAction {
 			'Create PR comment')
 
 		// https://github.com/actions/toolkit/tree/main/packages/core#exit-codes
-		core.setFailed(msg);
+		core.setFailed(body);
 	}
 }
 
