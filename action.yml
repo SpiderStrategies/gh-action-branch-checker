@@ -1,11 +1,8 @@
-name: 'Milestone Checker'
-description: 'Look for PRs based on a branch not matching the milestone of the issue'
+name: 'Branch Checker'
+description: 'Ensure the base branch of a PR matches the branch for the issue milestone'
 inputs:
  repo-token:
    description: 'The github token'
-   required: true
- milestoneNumber:  # id of input
-   description: 'The milestone number associated to the branches workflow'
    required: true
 runs:
   using: 'node12'

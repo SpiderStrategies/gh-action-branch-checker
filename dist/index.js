@@ -3991,6 +3991,105 @@ exports.Deprecation = Deprecation;
 
 /***/ }),
 
+/***/ 7008:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const util = __nccwpck_require__(3837)
+const exec = util.promisify((__nccwpck_require__(2081).exec))
+
+
+const core = __nccwpck_require__(8460)
+const github = __nccwpck_require__(8369)
+
+const dryRun = core.getInput('dry-run');
+const context = github.context;
+const { repository } = context.payload
+
+// Setup Octokit
+let octokit
+const repoToken = core.getInput('repo-token')
+if (repoToken) {
+	octokit = github.getOctokit(repoToken)
+}
+// If the event has a repository extract the attributes
+let repoOwnerParams = {}
+if (repository) {
+	repoOwnerParams = {
+		owner: repository.owner.login,
+		repo: repository.name
+	}
+}
+
+/**
+ * Common operations actions will invoke upon an instance of an action
+ */
+class BaseAction {
+
+	/**
+	 * Runs the action
+	 * @returns {Promise<void>}
+	 */
+	async run() {
+		return this.runAction().catch(err => {
+			core.error(err)
+			core.setFailed(err)
+		})
+	}
+
+	/**
+	 * Performs the action's work
+	 * @returns {Promise<void>}
+	 */
+	async runAction() {
+		throw new Error('Subclasses must implement runAction')
+	}
+
+	/**
+	 * Executes a command using FS.exec and performs logging and dry run logic.
+	 *
+	 * @param cmd
+	 *
+	 * @returns {Promise<string>}
+	 */
+	async exec(cmd) {
+		if (dryRun) {
+			core.info(`dry run: ${cmd}`)
+		} else {
+			core.info(`Running: ${cmd}`)
+			const { stdout, stderr } = await exec(cmd);
+			if (stderr) {
+				core.info(stderr)
+			}
+			return stdout.toString().trim()
+		}
+	}
+
+	/**
+	 * Make a GitHub API request using the octokit instance.
+	 * If the action did not specify a 'repo-token' input this will fail.
+	 *
+	 * @param {Function} apiFn (octokit.rest, opts) => {}
+	 * @param {Object} opts The options to apply to the api call in addition to the base options
+	 * @param {String} [label=''] Optionally label the operation in the log output
+	 * @returns {Promise<void>}
+	 */
+	async execRest(apiFn, opts, label = '') {
+		if (octokit && repoOwnerParams) {
+			const allOptions = {...repoOwnerParams, ...opts}
+			core.debug(`Invoking octokit rest api ${label}: ${JSON.stringify(opts)}`)
+			return await apiFn(octokit.rest, allOptions)
+		} else {
+			throw new Error(`octokit is not initialized! Did the action specify the required 'repo-token'?`)
+		}
+	}
+
+
+}
+
+module.exports = BaseAction
+
+/***/ }),
+
 /***/ 1917:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -4080,14 +4179,17 @@ const ISSUE_REGEX = /#(\d{3,})/g
 const BRANCH_ISSUE_REGEX = /(\d{3,})/g
 
 /**
+ * Common algorithm for finding an issue number:
+ * 1. From the commit messages
+ * 2. From the PR title
+ * 3. From the branch name
  *
- * @param {Octokit} octokit https://octokit.github.io/rest.js/v18#usage
- * @param {Object} repoOwnerParams passed on all octokit calls
+ * @param {BaseAction} action
  * @param {Object} pull_request from the event
  *
  * @returns {Promise<string>} The issue number
  */
-async function findIssueNumber({octokit, repoOwnerParams, pull_request}) {
+async function findIssueNumber({action, pull_request}) {
 
 	const { number: pull_number, title, head } = pull_request
 	const prBranch = head.ref
@@ -4105,12 +4207,11 @@ async function findIssueNumber({octokit, repoOwnerParams, pull_request}) {
 
 	let issueNumber
 	// First, Look at the commits
-	const opts = {
-		...repoOwnerParams,
-		pull_number
-	};
-	console.log(`Fetching commits for ${JSON.stringify(opts)}`)
-	const commits = await octokit.rest.pulls.listCommits(opts)
+	const commits = await action.execRest(
+		(api, opts) => api.pulls.listCommits(opts),
+		{ pull_number },
+		'Fetching commits for'
+	)
 	const commitMessages = commits.data.map(c => c.commit.message).reverse()
 	console.log('commit messages:', commitMessages)
 
@@ -4138,8 +4239,10 @@ module.exports = findIssueNumber
 
 const configReader = __nccwpck_require__(1917)
 const findIssueNumber = __nccwpck_require__(6036)
+const BaseAction = __nccwpck_require__(7008)
 
 module.exports = {
+	BaseAction,
 	configReader,
 	findIssueNumber
 }
@@ -8470,6 +8573,14 @@ module.exports = require("assert");
 
 /***/ }),
 
+/***/ 2081:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("child_process");
+
+/***/ }),
+
 /***/ 2361:
 /***/ ((module) => {
 
@@ -8627,44 +8738,65 @@ var __webpack_exports__ = {};
 const core = __nccwpck_require__(8460)
 const github = __nccwpck_require__(8369)
 
-const { findIssueNumber } = __nccwpck_require__(6139)
+const { findIssueNumber, configReader, BaseAction } = __nccwpck_require__(6139)
 
 const context = github.context;
-const { repository, pull_request } = context.payload
-const octokit = github.getOctokit(core.getInput('repo-token'))
-const repoOwnerParams = {
-	owner: repository.owner.login,
-	repo: repository.name
-}
+const { pull_request } = context.payload
+const { number: prNumber, base, user } = pull_request
+const baseBranch = base.ref
+const prAuthor = '@' + user.login
 
-async function run() {
-	const expectedMilestoneNumber = core.getInput('milestone-number', { required: true });
-	core.info(`expected milestoneNumber: ${expectedMilestoneNumber}`)
+class BranchCheckerAction extends BaseAction {
 
-	const issueNumber = await findIssueNumber({
-		octokit,
-		repoOwnerParams,
-		pull_request
-	})
+	async runAction() {
+		const issueNumber = await findIssueNumber({action: this, pull_request})
 
-	// https://octokit.github.io/rest.js/v18#issues
-	const issueResponse = await octokit.rest.issues.get({
-		...repoOwnerParams,
-		issue_number: issueNumber
-	})
+		// https://octokit.github.io/rest.js/v18#issues
+		const issueResponse = await this.execRest(
+			(api, opts) => api.issues.get(opts),
+			{issue_number: issueNumber},
+			'Get Issue')
 
-	const { title, number:actualMilestoneNumber } = issueResponse.data.milestone
+		if (!issueResponse.data.milestone) {
+			await this.fail(`Issue #${issueNumber} is missing a milestone, can't validate the base branch.`)
+		} else {
+			await this.validateBranch(issueResponse, issueNumber)
+		}
+	}
 
-	if (expectedMilestoneNumber != actualMilestoneNumber) {
+	async validateBranch(issueResponse, issueNumber) {
+		const configFile = core.getInput('config-file', { required: true });
+		const { branchNameByMilestoneNumber } = configReader(configFile)
+		const {
+			title,
+			number: issueMilestoneNumber
+		} = issueResponse.data.milestone
+		const issueBranch = branchNameByMilestoneNumber[issueMilestoneNumber]
+
+		if (baseBranch != issueBranch) {
+			const msg = `${prAuthor} it looks like this pull request is against the wrong branch.` +
+				` It should probably be \`${issueBranch}\` instead of \`${baseBranch}\``
+			await this.fail(msg)
+		} else {
+			core.info(`Success: PR baseBranch '${baseBranch}' matches issue #${issueNumber} ${title} branch '${issueBranch}'`)
+		}
+	}
+
+	async fail(body) {
+
+		// Adds a regular comment to a pull request timeline instead of the
+		// diff view
+		await this.execRest(
+			(api, opts) => api.issues.createComment(opts),
+			{issue_number: prNumber, body},
+			'Create PR comment')
+
 		// https://github.com/actions/toolkit/tree/main/packages/core#exit-codes
-		core.setFailed(`Milestone ${title} is expected for issue #${issueNumber}`);
-	} else {
-		core.info(`Milestone ${title} matches issue #$issueNumber}`)
+		core.setFailed(body);
 	}
 }
 
-return run()
-	.catch(err => core.error(err))
+return new BranchCheckerAction().run()
 })();
 
 module.exports = __webpack_exports__;
