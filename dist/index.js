@@ -8775,7 +8775,7 @@ class BranchCheckerAction extends BaseAction {
 
 		if (baseBranch != issueBranch) {
 			const msg = `${prAuthor} it looks like this pull request is against the wrong branch.` +
-				` It should probably be ${issueBranch} instead of ${baseBranch}`
+				` It should probably be \`${issueBranch}\` instead of \`${baseBranch}\``
 			await this.fail(msg)
 		} else {
 			core.info(`Success: PR baseBranch '${baseBranch}' matches issue #${issueNumber} ${title} branch '${issueBranch}'`)
