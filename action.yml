@@ -1,9 +1,12 @@
 name: 'Branch Checker'
 description: 'Ensure the base branch of a PR matches the branch for the issue milestone'
 inputs:
- repo-token:
-   description: 'The github token'
-   required: true
+  config-file:
+    description: 'The location of the branch config file'
+    required: true
+  repo-token:
+    description: 'The github token'
+    required: true
 runs:
   using: 'node12'
   main: 'dist/index.js'
