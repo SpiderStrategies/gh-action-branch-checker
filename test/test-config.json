@@ -1,0 +1,25 @@
+{
+  "branches": {
+	"release-2020-commercial": {
+	  "alias": "2020",
+	  "milestoneNumber": 266
+	},
+	"release-2021-commercial-emergency": {
+	  "alias": "2021-emergency",
+	  "milestoneNumber": 364
+	},
+	"release-2021-commercial-sp": {
+	  "alias": "2021-sp",
+	  "milestoneNumber": 332
+	},
+	"release-2022": {
+	  "alias": "2022",
+	  "milestoneNumber": 327
+	}
+  },
+  "mergeOperations": {
+	"release-2020-commercial": "release-2021-commercial-emergency",
+	"release-2021-commercial-emergency": "release-2021-commercial-sp",
+	"release-2021-commercial-sp": "release-2022"
+  }
+}

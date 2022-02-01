@@ -4,14 +4,16 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "ncc build index.js"
+    "build": "ncc build index.js",
+    "test": "tap"
   },
   "dependencies": {
     "@actions/core": "^1.6.0",
     "@actions/github": "^5.0.0",
-    "gh-action-components": "git+ssh://git@github.com/SpiderStrategies/gh-action-components#f732920ae39181f16e242bcf40313b9c6e186d93"
+    "gh-action-components": "git+ssh://git@github.com/SpiderStrategies/gh-action-components#e3d034d4a5173076d248f3ab9bb4f8d093e06302"
   },
   "devDependencies": {
-    "@vercel/ncc": "^0.33.1"
+    "@vercel/ncc": "^0.33.1",
+    "tap": "^15.1.6"
   }
 }
