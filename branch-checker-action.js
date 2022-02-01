@@ -69,7 +69,7 @@ class BranchCheckerAction extends BaseAction {
 
 	async validateBranch(issueResponse, issueNumber) {
 
-		const configFile = core.getInput('config-file', { required: true });
+		const { configFile, baseBranch, prAuthor } = this.options
 		const { branchNameByMilestoneNumber } = configReader(configFile)
 		const {
 			title,
@@ -87,6 +87,8 @@ class BranchCheckerAction extends BaseAction {
 	}
 
 	async fail(body) {
+
+		const { prNumber } = this.options
 
 		// Adds a regular comment to a pull request timeline instead of the
 		// diff view
