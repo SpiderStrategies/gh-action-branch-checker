@@ -1,6 +1,118 @@
 /******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
+/***/ 8757:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+// https://github.com/actions/toolkit/tree/main/packages/core#annotations
+const core = __nccwpck_require__(2186)
+
+const { findIssueNumber, configReader, BaseAction } = __nccwpck_require__(7870)
+
+class BranchCheckerAction extends BaseAction {
+
+	constructor(options = {}) {
+		super()
+		this.options = options
+	}
+
+	async runAction() {
+		await this.checkAgainstBranchName()
+		await this.checkAgainstIssueMilestone()
+	}
+
+	/**
+	 * If the branch is one that resolves merge conflicts, extract the target
+	 * branch alias from the name instead of using the Issue milestone.
+	 *
+	 * https://github.com/SpiderStrategies/Scoreboard/pull/44997#issuecomment-1026432096
+	 */
+	async checkAgainstBranchName() {
+		const { configFile, baseBranch, prBranch, prAuthor } = this.options
+		core.info(`Looking for branch alias in PR branch name: ${prBranch}`)
+		const regexResult = /issue-\d*-pr-\d*-conflicts-([\w|-]*)$/g.exec(prBranch)
+		const branchAlias = (regexResult && regexResult.length > 1) ? regexResult[1] : undefined
+		if (branchAlias) {
+			this.done = true
+			const { branchByAlias } = configReader(configFile)
+			const { name } = branchByAlias[branchAlias] || {}
+			if (baseBranch != name) {
+				const msg = `${prAuthor} This pull request is against the wrong branch. It must be \`${name}\` instead of \`${baseBranch}\``
+				await this.fail(msg)
+			} else {
+				core.info(`Success: PR baseBranch '${baseBranch}' matches PR conflict resolution branch '${prBranch}'`)
+			}
+		}
+	}
+
+	async checkAgainstIssueMilestone() {
+
+		if (this.done) return
+
+		const { issueNumber, issueResponse } = await this.getIssue()
+
+		if (!issueResponse.data.milestone) {
+			await this.fail(`Issue #${issueNumber} is missing a milestone, can't validate the base branch.`)
+		} else {
+			await this.validateBranch(issueResponse, issueNumber)
+		}
+	}
+
+	async getIssue() {
+		const { pull_request } = this.options
+		const issueNumber = await findIssueNumber({action: this, pull_request})
+
+		// https://octokit.github.io/rest.js/v18#issues
+		const issueResponse = await this.execRest(
+			(api, opts) => api.issues.get(opts),
+			{issue_number: issueNumber},
+			'Get Issue')
+
+		return {
+			issueNumber,
+			issueResponse
+		}
+	}
+
+	async validateBranch(issueResponse, issueNumber) {
+
+		const { configFile, baseBranch, prAuthor } = this.options
+		const { branchNameByMilestoneNumber } = configReader(configFile)
+		const {
+			title,
+			number: issueMilestoneNumber
+		} = issueResponse.data.milestone
+		const issueBranch = branchNameByMilestoneNumber[issueMilestoneNumber]
+
+		if (baseBranch != issueBranch) {
+			const msg = `${prAuthor} it looks like this pull request is against the wrong branch.` +
+				` It should probably be \`${issueBranch}\` instead of \`${baseBranch}\``
+			await this.fail(msg)
+		} else {
+			core.info(`Success: PR baseBranch '${baseBranch}' matches issue #${issueNumber} ${title} branch '${issueBranch}'`)
+		}
+	}
+
+	async fail(body) {
+
+		const { prNumber } = this.options
+
+		// Adds a regular comment to a pull request timeline instead of the
+		// diff view
+		await this.execRest(
+			(api, opts) => api.issues.createComment(opts),
+			{issue_number: prNumber, body},
+			'Create PR comment')
+
+		// https://github.com/actions/toolkit/tree/main/packages/core#exit-codes
+		core.warning(body);
+	}
+}
+
+module.exports = BranchCheckerAction
+
+/***/ }),
+
 /***/ 7351:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -4099,11 +4211,25 @@ const { readFileSync } = __nccwpck_require__(7147)
  * @typedef Configuration
  *
  * @property {Object} config The config object as it was provided
+ * @property {Object} config.branches
+ * "branches": {
+ *     "release-2020-commercial": {
+ *       "alias": "2020",
+ *       "milestoneNumber": 1
+ *     },
+ *     ...
+ * }
  *
  * @property {Array<String>} mergeTargets An ordered array of branches that a
  * change should be merged forward into. (e.g. releases in chronological order)
  *
- * @property {Object} branchNameByMilestoneNumber e.g. { 1: 'release-2022' }
+ * @property {Object} branchNameByMilestoneNumber
+ * A mapping of milestoneNumber to the release branch the milestone is assigned to.
+ * e.g. { 1: 'release-2022' }
+ *
+ * @property {Object} branchByAlias
+ * A mapping of the branch alias to the branch object
+ * e.g. { '2021-sp': {branchAttributes...} }
  */
 
 /**
@@ -4117,9 +4243,20 @@ const { readFileSync } = __nccwpck_require__(7147)
 function configReader(configFileLocation, options = {}) {
 	const config = JSON.parse(readFileSync(configFileLocation))
 
+	const branchNameByMilestoneNumber = {}
+	const branchByAlias = {}
+
+	Object.entries(config.branches).forEach(entry => {
+		const [branchName, props] = entry;
+		const { alias, milestoneNumber } = props
+		branchNameByMilestoneNumber[milestoneNumber] = branchName
+		branchByAlias[alias] = { name: branchName, ...props }
+	})
+
 	const data = {
 		mergeTargets: buildMergeTargets(config, options),
-		branchNameByMilestoneNumber: branchNameByMilestone(config)
+		branchByAlias,
+		branchNameByMilestoneNumber
 	}
 
 	return {
@@ -4139,34 +4276,6 @@ function buildMergeTargets(config, options) {
 
 	return mergeTargets
 }
-
-/**
- * Get a mapping of milestonNumber to the release branch the milestone is assigned to.
- *
- * @param {Object} config.branches
- * "branches": {
- *     "release-2020-commercial": {
- *       "alias": "2020",
- *       "milestoneNumber": 1
- *     },
- *     ...
- * }
- *
- * @returns {Object}
- * {
- *     1: "release-2020-commercial"
- * }
- */
-function branchNameByMilestone(config) {
-	const returnValue = {}
-	Object.entries(config.branches).forEach(entry => {
-		const [branchName, props] = entry;
-		const { milestoneNumber } = props
-		returnValue[milestoneNumber] = branchName
-	})
-	return returnValue
-}
-
 
 module.exports = configReader
 
@@ -8734,69 +8843,24 @@ module.exports = JSON.parse('[[[0,44],"disallowed_STD3_valid"],[[45,46],"valid"]
 var __webpack_exports__ = {};
 // This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
 (() => {
-// https://github.com/actions/toolkit/tree/main/packages/core#annotations
-const core = __nccwpck_require__(2186)
+const BranchCheckerAction = __nccwpck_require__(8757)
 const github = __nccwpck_require__(5438)
-
-const { findIssueNumber, configReader, BaseAction } = __nccwpck_require__(7870)
+const core = __nccwpck_require__(2186)
 
 const context = github.context;
 const { pull_request } = context.payload
-const { number: prNumber, base, user } = pull_request
-const baseBranch = base.ref
-const prAuthor = '@' + user.login
+const { number: prNumber, base, head, user } = pull_request
 
-class BranchCheckerAction extends BaseAction {
+const configFile = core.getInput('config-file', { required: true });
 
-	async runAction() {
-		const issueNumber = await findIssueNumber({action: this, pull_request})
-
-		// https://octokit.github.io/rest.js/v18#issues
-		const issueResponse = await this.execRest(
-			(api, opts) => api.issues.get(opts),
-			{issue_number: issueNumber},
-			'Get Issue')
-
-		if (!issueResponse.data.milestone) {
-			await this.fail(`Issue #${issueNumber} is missing a milestone, can't validate the base branch.`)
-		} else {
-			await this.validateBranch(issueResponse, issueNumber)
-		}
-	}
-
-	async validateBranch(issueResponse, issueNumber) {
-		const configFile = core.getInput('config-file', { required: true });
-		const { branchNameByMilestoneNumber } = configReader(configFile)
-		const {
-			title,
-			number: issueMilestoneNumber
-		} = issueResponse.data.milestone
-		const issueBranch = branchNameByMilestoneNumber[issueMilestoneNumber]
-
-		if (baseBranch != issueBranch) {
-			const msg = `${prAuthor} it looks like this pull request is against the wrong branch.` +
-				` It should probably be \`${issueBranch}\` instead of \`${baseBranch}\``
-			await this.fail(msg)
-		} else {
-			core.info(`Success: PR baseBranch '${baseBranch}' matches issue #${issueNumber} ${title} branch '${issueBranch}'`)
-		}
-	}
-
-	async fail(body) {
-
-		// Adds a regular comment to a pull request timeline instead of the
-		// diff view
-		await this.execRest(
-			(api, opts) => api.issues.createComment(opts),
-			{issue_number: prNumber, body},
-			'Create PR comment')
-
-		// https://github.com/actions/toolkit/tree/main/packages/core#exit-codes
-		core.warning(body);
-	}
-}
-
-return new BranchCheckerAction().run()
+return new BranchCheckerAction({
+	configFile,
+	pull_request,
+	baseBranch: base.ref,
+	prBranch: head.ref,
+	prAuthor: '@' + user.login,
+	prNumber
+}).run()
 })();
 
 module.exports = __webpack_exports__;

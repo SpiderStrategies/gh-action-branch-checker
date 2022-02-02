@@ -17,12 +17,13 @@ class BranchCheckerAction extends BaseAction {
 
 	/**
 	 * If the branch is one that resolves merge conflicts, extract the target
-	 * branch alias from the name isntead of using the Issue milestone.
+	 * branch alias from the name instead of using the Issue milestone.
 	 *
 	 * https://github.com/SpiderStrategies/Scoreboard/pull/44997#issuecomment-1026432096
 	 */
 	async checkAgainstBranchName() {
 		const { configFile, baseBranch, prBranch, prAuthor } = this.options
+		core.info(`Looking for branch alias in PR branch name: ${prBranch}`)
 		const regexResult = /issue-\d*-pr-\d*-conflicts-([\w|-]*)$/g.exec(prBranch)
 		const branchAlias = (regexResult && regexResult.length > 1) ? regexResult[1] : undefined
 		if (branchAlias) {
