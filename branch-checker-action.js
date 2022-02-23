@@ -77,8 +77,15 @@ class BranchCheckerAction extends BaseAction {
 			number: issueMilestoneNumber
 		} = issueResponse.data.milestone
 		const issueBranch = branchNameByMilestoneNumber[issueMilestoneNumber]
+		await this.checkMilestone(issueBranch, prAuthor, issueNumber, baseBranch, title)
+	}
 
-		if (baseBranch != issueBranch) {
+	async checkMilestone(issueBranch, prAuthor, issueNumber, baseBranch, title) {
+		if (!issueBranch) {
+			const msg = `${prAuthor} Did you use the correct issue number in your commit message?` +
+				` There was no milestone found for #${issueNumber}`
+			await this.fail(msg)
+		} else if (baseBranch != issueBranch) {
 			const msg = `${prAuthor} it looks like this pull request is against the wrong branch.` +
 				` It should probably be \`${issueBranch}\` instead of \`${baseBranch}\``
 			await this.fail(msg)
