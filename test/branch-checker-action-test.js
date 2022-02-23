@@ -45,3 +45,24 @@ tap.test(`Pass from branch name`, async t => {
 	t.ok(action.done)
 	t.notOk(action.failMsg)
 })
+
+// checkMilestone
+tap.test(`checkMilestone - issue with no milestone`, async t => {
+	const action = new StubbedChecker()
+	await action.checkMilestone(undefined, '@joe', '123')
+	t.equal(action.failMsg,
+		'@joe Did you use the correct issue number in your commit message? There was no milestone found for #123')
+})
+
+tap.test(`checkMilestone - wrong branch`, async t => {
+	const action = new StubbedChecker()
+	await action.checkMilestone('issue-branch', '@joe', '123', 'base-branch')
+	t.equal(action.failMsg,
+		'@joe it looks like this pull request is against the wrong branch. It should probably be `issue-branch` instead of `base-branch`')
+})
+
+tap.test(`checkMilestone - correct branch`, async t => {
+	const action = new StubbedChecker()
+	await action.checkMilestone('issue-branch', '@joe', '123', 'issue-branch')
+	t.notOk(action.failMsg)
+})
