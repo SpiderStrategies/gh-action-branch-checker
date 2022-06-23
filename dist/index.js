@@ -59,8 +59,8 @@ class BranchCheckerAction extends BaseAction {
 	}
 
 	async getIssue() {
-		const { pull_request } = this.options
-		const issueNumber = await findIssueNumber({action: this, pull_request})
+		const { pullRequest } = this.options
+		const issueNumber = await findIssueNumber({action: this, pullRequest})
 
 		// https://octokit.github.io/rest.js/v18#issues
 		const issueResponse = await this.execRest(
@@ -4115,21 +4115,12 @@ exports.Deprecation = Deprecation;
 
 const util = __nccwpck_require__(3837)
 const exec = util.promisify((__nccwpck_require__(2081).exec))
+const {writeFile} = __nccwpck_require__(3292)
 
-
-const core = __nccwpck_require__(2186)
 const github = __nccwpck_require__(5438)
-
-const dryRun = core.getInput('dry-run');
 const context = github.context;
 const { repository } = context.payload
 
-// Setup Octokit
-let octokit
-const repoToken = core.getInput('repo-token')
-if (repoToken) {
-	octokit = github.getOctokit(repoToken)
-}
 // If the event has a repository extract the attributes
 let repoOwnerParams = {}
 if (repository) {
@@ -4144,15 +4135,35 @@ if (repository) {
  */
 class BaseAction {
 
+	constructor() {
+		// https://github.com/actions/toolkit/tree/main/packages/core#annotations
+		this.core = __nccwpck_require__(2186)
+
+		// Setup Octokit
+		const repoToken = this.core.getInput('repo-token')
+		if (repoToken) {
+			this.octokit = github.getOctokit(repoToken)
+		}
+	}
+
 	/**
 	 * Runs the action
 	 * @returns {Promise<void>}
 	 */
 	async run() {
-		return this.runAction().catch(err => {
-			core.error(err)
-			core.setFailed(err)
-		})
+		return this.runAction().catch(async err => await this.onError(err))
+	}
+
+	/**
+	 * Subclasses can override this function to do additional actions when an
+	 * (uncaught) error occurs.
+	 *
+	 * @param err
+	 * @returns {Promise<void>}
+	 */
+	async onError(err) {
+		this.core.error(err)
+		this.core.setFailed(err)
 	}
 
 	/**
@@ -4171,16 +4182,22 @@ class BaseAction {
 	 * @returns {Promise<string>}
 	 */
 	async exec(cmd) {
-		if (dryRun) {
-			core.info(`dry run: ${cmd}`)
+		if (this.core.getInput('dry-run')) {
+			this.core.info(`dry run: ${cmd}`)
 		} else {
-			core.info(`Running: ${cmd}`)
+			this.core.info(`Running: ${cmd}`)
 			const { stdout, stderr } = await exec(cmd);
 			if (stderr) {
-				core.info(stderr)
+				this.core.info(stderr)
 			}
 			return stdout.toString().trim()
 		}
+	}
+
+	async execQuietly(cmd) {
+		try {
+			return await this.exec(cmd)
+		} catch(e) {}
 	}
 
 	/**
@@ -4190,19 +4207,65 @@ class BaseAction {
 	 * @param {Function} apiFn (octokit.rest, opts) => {}
 	 * @param {Object} opts The options to apply to the api call in addition to the base options
 	 * @param {String} [label=''] Optionally label the operation in the log output
-	 * @returns {Promise<void>}
+	 * @returns {Promise}
 	 */
 	async execRest(apiFn, opts, label = '') {
-		if (octokit && repoOwnerParams) {
+		if (this.octokit && repoOwnerParams) {
 			const allOptions = {...repoOwnerParams, ...opts}
-			core.debug(`Invoking octokit rest api ${label}: ${JSON.stringify(opts)}`)
-			return await apiFn(octokit.rest, allOptions)
+			this.core.debug(`Invoking octokit rest api ${label}: ${JSON.stringify(opts)}`)
+			return await apiFn(this.octokit.rest, allOptions)
 		} else {
 			throw new Error(`octokit is not initialized! Did the action specify the required 'repo-token'?`)
 		}
 	}
 
+	/**
+	 *
+	 * @param {String} message
+	 * @param {Object} [author]
+	 * @param {String} [author.name]
+	 * @param {String} [author.email]
+	 * @returns {Promise<void>}
+	 */
+	async commit(message, author) {
+		// Write to a file to avoid escaping nightmares
+		await writeFile('.commitmsg', message)
+		let options = `--file=.commitmsg`
+		if (author) {
+			options += ` --author "${author.name} <${author.email}>"`
+		}
+		await this.exec(`git commit ${options}`)
+		await this.exec(`git push`)
+	}
 
+	async createBranch(name, sha) {
+		await this.exec(`git checkout -b ${name} ${sha}`)
+		await this.exec(`git push --set-upstream origin ${name}`)
+	}
+
+	async deleteBranch(name) {
+		return this.execQuietly(`git push origin --delete ${name}`)
+	}
+
+	async logError(e, prefix = 'Error Detected') {
+		// the stack has the stderr output in it, so we don't want to log the full
+		// error object or we get buffers and redundant information
+		const { stack, status, stdout = {} } = e
+		this.core.warning(`${prefix}:\n`,
+			`status: ${status}\n`,
+			`stack: ${stack}\n`,
+			`stdout: ${stdout.toString()}`
+		)
+	}
+
+	// Doesn't look like the core groups work in conjunction with the private
+	// action (nick-invision/private-action-loader@v3)
+	startGroup(label) {
+		// this.core.startGroup(label);
+		this.core.info(`\n${label}\n===============================================\n`)
+	}
+
+	endGroup() {  /*this.core.endGroup()*/ }
 }
 
 module.exports = BaseAction
@@ -4252,23 +4315,27 @@ function configReader(configFileLocation, options = {}) {
 
 	const branchNameByMilestoneNumber = {}
 	const branchByAlias = {}
-
-	Object.entries(config.branches).forEach(entry => {
+	const branches = config.branches
+	Object.entries(branches).forEach(entry => {
 		const [branchName, props] = entry;
 		const { alias, milestoneNumber } = props
 		branchNameByMilestoneNumber[milestoneNumber] = branchName
 		branchByAlias[alias] = { name: branchName, ...props }
 	})
 
-	const data = {
+	return {
+		// State
+		config,
+		branches,
 		mergeTargets: buildMergeTargets(config, options),
 		branchByAlias,
-		branchNameByMilestoneNumber
-	}
-
-	return {
-		config,
-		...data
+		branchNameByMilestoneNumber,
+		// Functions
+		/**
+		 * @param {String} branch the full branch name
+		 * @returns {String} the branch alias
+		 */
+		getBranchAlias: branch => config.branches[branch].alias,
 	}
 }
 
@@ -4301,25 +4368,14 @@ const BRANCH_ISSUE_REGEX = /(\d{3,})/g
  * 3. From the branch name
  *
  * @param {BaseAction} action
- * @param {Object} pull_request from the event
+ * @param {Object} pullRequest from the event
  *
  * @returns {Promise<string>} The issue number
  */
-async function findIssueNumber({action, pull_request}) {
+async function findIssueNumber({action, pullRequest}) {
 
-	const { number: pull_number, title, head } = pull_request
+	const { number: pull_number, title, head } = pullRequest
 	const prBranch = head.ref
-
-	const search = (term, source, regex = ISSUE_REGEX) => {
-		const result = regex.exec(term)
-		if (result) {
-			let issueNumber = result.length > 1 ? result[1] : undefined
-			if (issueNumber) {
-				console.log(`issue number:`, issueNumber, `found in`, source)
-			}
-			return issueNumber
-		}
-	}
 
 	let issueNumber
 	// First, Look at the commits
@@ -4328,12 +4384,7 @@ async function findIssueNumber({action, pull_request}) {
 		{ pull_number },
 		'Fetching commits for'
 	)
-	const commitMessages = commits.data.map(c => c.commit.message).reverse()
-	console.log('commit messages:', commitMessages)
-
-	for(let i=0; i < commitMessages.length && !issueNumber; i++) {
-		issueNumber = search(commitMessages[i], 'commits')
-	}
+	issueNumber = extractFromCommits(commits)
 
 	// Second, the PR title
 	if (!issueNumber) { search(title, 'PR title') }
@@ -4344,8 +4395,33 @@ async function findIssueNumber({action, pull_request}) {
 	return issueNumber
 }
 
-module.exports = findIssueNumber
+/**
+ * @param {Object} commits GH API response
+ */
+function extractFromCommits(commits) {
+	const commitMessages = commits.data.map(c => c.commit.message).reverse()
+	console.log('commit messages:', commitMessages)
 
+	let issueNumber
+	for (let i = 0; i < commitMessages.length && !issueNumber; i++) {
+		issueNumber = search(commitMessages[i], 'commits')
+	}
+	return issueNumber
+}
+
+function search(term, source, regex = ISSUE_REGEX) {
+	const result = regex.exec(term)
+	if (result) {
+		let issueNumber = result.length > 1 ? result[1] : undefined
+		if (issueNumber) {
+			console.log(`issue number:`, issueNumber, `found in`, source)
+		}
+		return issueNumber
+	}
+}
+
+module.exports = findIssueNumber
+module.exports.extractFromCommits = extractFromCommits
 
 
 /***/ }),
@@ -4357,11 +4433,44 @@ const configReader = __nccwpck_require__(4302)
 const findIssueNumber = __nccwpck_require__(4625)
 const BaseAction = __nccwpck_require__(947)
 
+const mockCore = __nccwpck_require__(6874)
+
 module.exports = {
 	BaseAction,
 	configReader,
-	findIssueNumber
+	findIssueNumber,
+	// Test Utils
+	mockCore
 }
+
+/***/ }),
+
+/***/ 6874:
+/***/ ((module) => {
+
+/**
+ * Mocks the GitHub Action core API so we can inspect it during tests.
+ *
+ * @param {Object} [options.inputs] Key/Value pairs
+ */
+function mockCore(options = {}) {
+	const mockCore = {
+		infoMsgs: [],
+		debugMsgs: [],
+		warningMsgs: [],
+		outputs: {},
+		error: err => mockCore.errorArg = err,
+		setFailed: err => mockCore.failedArg = err,
+		info: msg => mockCore.infoMsgs.push(msg),
+		debug: msg => mockCore.debugMsgs.push(msg),
+		warning: msg => mockCore.warningMsgs.push(msg),
+		getInput: name => options.inputs && options.inputs[name],
+		setOutput: (name, value) => mockCore.outputs[name] = value
+	}
+	return mockCore
+}
+
+module.exports = mockCore
 
 /***/ }),
 
@@ -8713,6 +8822,14 @@ module.exports = require("fs");
 
 /***/ }),
 
+/***/ 3292:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("fs/promises");
+
+/***/ }),
+
 /***/ 3685:
 /***/ ((module) => {
 
@@ -8862,7 +8979,7 @@ const configFile = core.getInput('config-file', { required: true });
 
 return new BranchCheckerAction({
 	configFile,
-	pull_request,
+	pullRequest: pull_request,
 	baseBranch: base.ref,
 	prBranch: head.ref,
 	prAuthor: '@' + user.login,

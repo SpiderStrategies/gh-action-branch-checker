@@ -53,8 +53,8 @@ class BranchCheckerAction extends BaseAction {
 	}
 
 	async getIssue() {
-		const { pull_request } = this.options
-		const issueNumber = await findIssueNumber({action: this, pull_request})
+		const { pullRequest } = this.options
+		const issueNumber = await findIssueNumber({action: this, pullRequest})
 
 		// https://octokit.github.io/rest.js/v18#issues
 		const issueResponse = await this.execRest(

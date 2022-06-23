@@ -1,6 +1,6 @@
 {
   "name": "branch-checker",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -10,7 +10,7 @@
   "dependencies": {
     "@actions/core": "^1.6.0",
     "@actions/github": "^5.0.0",
-    "gh-action-components": "git+ssh://git@github.com/SpiderStrategies/gh-action-components#e3d034d4a5173076d248f3ab9bb4f8d093e06302"
+    "gh-action-components": "git+ssh://git@github.com/SpiderStrategies/gh-action-components#905493c326c1efe93c265802b0f3a994dcd64970"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.33.1",

@@ -10,7 +10,7 @@ const configFile = core.getInput('config-file', { required: true });
 
 return new BranchCheckerAction({
 	configFile,
-	pull_request,
+	pullRequest: pull_request,
 	baseBranch: base.ref,
 	prBranch: head.ref,
 	prAuthor: '@' + user.login,
