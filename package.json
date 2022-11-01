@@ -8,7 +8,7 @@
     "test": "tap"
   },
   "dependencies": {
-    "@actions/core": "^1.6.0",
+    "@actions/core": "^1.10.0",
     "@actions/github": "^5.0.0",
     "gh-action-components": "git+ssh://git@github.com/SpiderStrategies/gh-action-components#e3d034d4a5173076d248f3ab9bb4f8d093e06302"
   },
