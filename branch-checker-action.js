@@ -62,22 +62,31 @@ class BranchCheckerAction extends BaseAction {
 
 	async getIssue() {
 		const { pull_request } = this.options
-		const issueNumber = await findIssueNumber({action: this, pull_request})
 
-		// If no issue number found, return null to skip milestone validation
-		if (!issueNumber) {
+		try {
+			const issueNumber = await findIssueNumber({action: this, pull_request})
+
+			console.log('Determined issue number is "' + issueNumber + '"')
+
+			// If no issue number found, return null to skip milestone validation
+			if (!issueNumber) {
+				return null
+			}
+
+			// https://octokit.github.io/rest.js/v18#issues
+			const issueResponse = await this.execRest(
+				(api, opts) => api.issues.get(opts),
+				{issue_number: issueNumber},
+				'Get Issue')
+
+			return {
+				issueNumber,
+				issueResponse
+			}
+		} catch (error) {
+			// If findIssueNumber fails (e.g., PR not accessible), skip milestone validation
+			core.info(`Unable to fetch issue information: ${error.message}. Skipping milestone validation.`)
 			return null
-		}
-
-		// https://octokit.github.io/rest.js/v18#issues
-		const issueResponse = await this.execRest(
-			(api, opts) => api.issues.get(opts),
-			{issue_number: issueNumber},
-			'Get Issue')
-
-		return {
-			issueNumber,
-			issueResponse
 		}
 	}
 
