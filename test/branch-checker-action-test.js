@@ -15,6 +15,15 @@ class StubbedChecker extends BranchCheckerAction {
 	}
 }
 
+class StubbedCheckerNoIssue extends BranchCheckerAction {
+	async fail(body) {
+		this.failMsg = body
+	}
+	async getIssue() {
+		return null
+	}
+}
+
 // checkAgainstBranchName
 
 const options = {
@@ -65,4 +74,65 @@ tap.test(`checkMilestone - correct branch`, async t => {
 	const action = new StubbedChecker()
 	await action.checkMilestone('issue-branch', '@joe', '123', 'issue-branch')
 	t.notOk(action.failMsg)
+})
+
+// checkAgainstIssueMilestone - no issue number found
+tap.test(`checkAgainstIssueMilestone - no issue number found`, async t => {
+	const action = new StubbedCheckerNoIssue({
+		configFile: 'test/test-config.json',
+		pull_request: {},
+		prBranch: 'some-branch-without-issue',
+		prAuthor: '@joe',
+		prNumber: 1
+	})
+	await action.checkAgainstIssueMilestone()
+	t.notOk(action.failMsg, 'Should not fail when no issue number is found')
+})
+
+// checkAgainstIssueMilestone - issue found but no milestone
+tap.test(`checkAgainstIssueMilestone - issue found but no milestone`, async t => {
+	const action = new StubbedChecker({
+		configFile: 'test/test-config.json',
+		pull_request: {},
+		prBranch: 'some-branch',
+		prAuthor: '@joe',
+		prNumber: 1
+	})
+	// Override getIssue to return an issue without milestone
+	action.getIssue = async () => ({
+		issueNumber: 123,
+		issueResponse: {
+			data: {
+				milestone: null
+			}
+		}
+	})
+	await action.checkAgainstIssueMilestone()
+	t.equal(action.failMsg, 'Issue #123 is missing a milestone, can\'t validate the base branch.')
+})
+
+// checkAgainstIssueMilestone - issue found with milestone, branch validation
+tap.test(`checkAgainstIssueMilestone - issue found with milestone, wrong branch`, async t => {
+	const action = new StubbedChecker({
+		configFile: 'test/test-config.json',
+		pull_request: {},
+		prBranch: 'some-branch',
+		prAuthor: '@joe',
+		prNumber: 1,
+		baseBranch: 'release-2022'
+	})
+	// Override getIssue to return an issue with milestone
+	action.getIssue = async () => ({
+		issueNumber: 123,
+		issueResponse: {
+			data: {
+				milestone: {
+					title: '2020 Release',
+					number: 266
+				}
+			}
+		}
+	})
+	await action.checkAgainstIssueMilestone()
+	t.equal(action.failMsg, '@joe it looks like this pull request is against the wrong branch. It should probably be `release-2020-commercial` instead of `release-2022`')
 })
