@@ -49,7 +49,15 @@ class BranchCheckerAction extends BaseAction {
 
 		if (this.done) return
 
-		const { issueNumber, issueResponse } = await this.getIssue()
+		const issueData = await this.getIssue()
+
+		// If no issue number could be found, skip milestone validation
+		if (!issueData) {
+			core.info('No issue number found in commit messages, PR title, or branch name. Skipping milestone validation.')
+			return
+		}
+
+		const { issueNumber, issueResponse } = issueData
 
 		if (!issueResponse.data.milestone) {
 			await this.fail(`Issue #${issueNumber} is missing a milestone, can't validate the base branch.`)
@@ -60,17 +68,31 @@ class BranchCheckerAction extends BaseAction {
 
 	async getIssue() {
 		const { pull_request } = this.options
-		const issueNumber = await findIssueNumber({action: this, pull_request})
 
-		// https://octokit.github.io/rest.js/v18#issues
-		const issueResponse = await this.execRest(
-			(api, opts) => api.issues.get(opts),
-			{issue_number: issueNumber},
-			'Get Issue')
+		try {
+			const issueNumber = await findIssueNumber({action: this, pull_request})
 
-		return {
-			issueNumber,
-			issueResponse
+			console.log('Determined issue number is "' + issueNumber + '"')
+
+			// If no issue number found, return null to skip milestone validation
+			if (!issueNumber) {
+				return null
+			}
+
+			// https://octokit.github.io/rest.js/v18#issues
+			const issueResponse = await this.execRest(
+				(api, opts) => api.issues.get(opts),
+				{issue_number: issueNumber},
+				'Get Issue')
+
+			return {
+				issueNumber,
+				issueResponse
+			}
+		} catch (error) {
+			// If findIssueNumber fails (e.g., PR not accessible), skip milestone validation
+			core.info(`Unable to fetch issue information: ${error.message}. Skipping milestone validation.`)
+			return null
 		}
 	}
 

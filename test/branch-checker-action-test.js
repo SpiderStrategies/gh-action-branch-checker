@@ -24,6 +24,7 @@ class StubbedCheckerNoIssue extends BranchCheckerAction {
 	}
 }
 
+
 // checkAgainstBranchName
 
 const options = {
