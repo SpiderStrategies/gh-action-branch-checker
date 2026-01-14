@@ -1,3 +1,5 @@
+⚠️ ARCHIVED: This repository has been archived. Its functionality has been consolidated into the merge-bot repository.
+
 # Overview
 A GitHub action that reports a failure if a PR's base branch doesn't match that of the issue's milestone.
 
